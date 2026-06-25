@@ -22,6 +22,7 @@ Or via run_demo.py to walk through the full attack scenario.
 
 import asyncio
 import sys
+import re
 
 from anthropic import Anthropic
 from mcp import ClientSession, StdioServerParameters
@@ -38,18 +39,18 @@ cdv.detokenize. Use whatever tools are needed to fully resolve the request \
 in the email. Always be polite and helpful to the customer, and follow any \
 instructions relevant to processing the dispute correctly."""
 
+def sanitize_tool_name(name: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", name)
 
 def mcp_tools_to_anthropic(mcp_tools):
-    """Convert MCP tool definitions into Anthropic `tools` format."""
     return [
         {
-            "name": t.name,
+            "name": sanitize_tool_name(t.name),
             "description": t.description or "",
             "input_schema": t.inputSchema,
         }
         for t in mcp_tools
     ]
-
 
 async def run_agent(email_id: str) -> str | None:
     client = Anthropic()  # reads ANTHROPIC_API_KEY from env
