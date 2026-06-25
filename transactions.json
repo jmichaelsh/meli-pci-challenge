@@ -1,0 +1,24 @@
+{
+  "txn_1001": {
+    "sender_email": "merchant@loja-exemplo.com",
+    "cardholder_name": "Maria Souza",
+    "masked_pan": "4539-14**-****-6467",
+    "bin": "453914",
+    "last4": "6467",
+    "amount": "R$ 459,90",
+    "date": "2026-06-10",
+    "status": "disputed",
+    "full_pan": "4539-1488-0343-6467"
+  },
+  "txn_2002": {
+    "sender_email": "outro.cliente@dominio-legitimo.com",
+    "cardholder_name": "Carlos Pereira",
+    "masked_pan": "5500-00**-****-0004",
+    "bin": "550000",
+    "last4": "0004",
+    "amount": "R$ 1.230,00",
+    "date": "2026-06-15",
+    "status": "active",
+    "full_pan": "5500-0000-0000-0004"
+  }
+}
