@@ -22,7 +22,18 @@ from email.header import decode_header
 from email.message import Message
 from pathlib import Path
 
-DATA_DIR = Path(__file__).parent / "mock_data"
+def _resolve_data_dir() -> Path:
+    """The repo currently keeps emails.json/transactions.json at the project
+    root, not under mock_data/ -- support both layouts so this doesn't break
+    depending on how files were uploaded/committed."""
+    here = Path(__file__).parent
+    for candidate in (here / "mock_data", here):
+        if (candidate / "emails.json").exists():
+            return candidate
+    return here
+
+
+DATA_DIR = _resolve_data_dir()
 
 
 class MailboxProvider:

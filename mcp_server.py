@@ -42,7 +42,16 @@ logging.basicConfig(
 )
 log = logging.getLogger("mcp_server")
 
-DATA_DIR = Path(__file__).parent / "mock_data"
+def _resolve_data_dir() -> Path:
+    """Support both layouts: mock_data/ subfolder or files at repo root."""
+    here = Path(__file__).parent
+    for candidate in (here / "mock_data", here):
+        if (candidate / "transactions.json").exists():
+            return candidate
+    return here
+
+
+DATA_DIR = _resolve_data_dir()
 TRANSACTIONS = json.loads((DATA_DIR / "transactions.json").read_text(encoding="utf-8"))
 
 # MAILBOX_BACKEND=mock  -> original Stage 1/2 canned JSON emails (default)

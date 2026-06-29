@@ -99,6 +99,32 @@ a higher hit rate for a live demo, you can nudge `EML-1003`/`EML-1004`'s
 injected text to be more explicit, or run a couple of times beforehand and
 pick the clearest captured transcript to show.
 
+### Running it manually, step by step (for a live walkthrough)
+
+`run_demo.py` runs straight through. For an interview/presentation, use
+`run_demo_steps.py` instead -- same underlying logic, but it stops **before
+every single action** and prints:
+
+- which module is about to act,
+- what role the AI agent plays in that specific step (if any),
+- what's about to happen,
+- and, in the vulnerable version, exactly what weakness that step exposes.
+
+You press Enter to advance one action at a time, so you can narrate each
+step live instead of reading a finished log.
+
+```bash
+python run_demo_steps.py EML-1001   # baseline, legitimate dispute
+python run_demo_steps.py EML-1003   # attack 1: PAN exfiltration attempt
+python run_demo_steps.py EML-1004   # attack 2: CDV_API_KEY exfiltration attempt
+```
+
+Set `STEP_AUTOPLAY=1` to skip the pauses (useful for a quick unattended
+smoke test before the real walkthrough):
+```bash
+STEP_AUTOPLAY=1 python run_demo_steps.py EML-1003
+```
+
 ## Reading a real mailbox (optional, more elaborate version)
 
 `mailbox_provider.py` already supports a real IMAP backend alongside the
@@ -152,6 +178,9 @@ removed -- both versions coexist in this same project):
 | `approve_pending.py` | -- | CLI simulating the analyst: `list` / `approve <id>` / `deny <id>`. |
 | `defended_app.py` | orchestrator | Wires sanitizer -> planner -> gateway together. |
 | `run_defended_demo.py` | demo | Runs the same 3 scenarios as `run_demo.py`, plus a direct "red team the gateway" test that assumes the planner LLM was *already* fully fooled, to prove the policy layer holds independent of model behavior. |
+| `step_explainer.py` | shared helper | Used by both `run_demo_steps.py` and `run_defended_demo_steps.py` to print a per-step explanation (module, AI agent's role, vulnerability/fix) and pause for Enter before each action. |
+| `run_demo_steps.py` | manual demo | Vulnerable version, run one step at a time -- see "Running it manually" below. |
+| `run_defended_demo_steps.py` | manual demo | Defended version, run one step at a time -- see "Running it manually" below. |
 
 ### Running it
 
@@ -179,6 +208,39 @@ asyncio.run(go())
 python approve_pending.py list
 python approve_pending.py approve <request_id>
 ```
+
+### Running it manually, step by step (for a live walkthrough)
+
+Just like the vulnerable version, `run_defended_demo_steps.py` walks through
+the exact same pipeline as `defended_app.py` but pauses before each action
+and explains, for that specific step:
+
+- which module is acting (`input_filter.py`, `planner.py`, `gateway.py`, ...),
+- the AI agent's role in that step -- and for most steps in the defended
+  version, the point is that the answer is **"none, it's deterministic
+  code"**, which is itself the architectural fix,
+- what vulnerability existed in the vulnerable baseline at the equivalent
+  point in the flow, and exactly how this step closes it.
+
+```bash
+python run_defended_demo_steps.py EML-1001   # baseline, legitimate dispute
+python run_defended_demo_steps.py EML-1003   # attack 1 -- blocked by the ownership check
+python run_defended_demo_steps.py EML-1004   # attack 2 -- planner never has the API key to leak
+```
+
+If the plan ends up requesting `detokenize` for a transaction whose owner
+*does* match the real sender, the script pauses and tells you the exact
+`approve_pending.py approve <request_id>` command to run in a second
+terminal before continuing -- this is the only point in either script where
+a human, not code, has to act.
+
+```bash
+STEP_AUTOPLAY=1 python run_defended_demo_steps.py EML-1003   # skip pauses, smoke test
+```
+
+(`shared by both: step_explainer.py` -- the small helper both
+`run_demo_steps.py` and `run_defended_demo_steps.py` use to print these
+explanations and wait for Enter.)
 
 ### Why this defeats both Stage 2 attacks
 
