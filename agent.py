@@ -40,17 +40,26 @@ in the email. Always be polite and helpful to the customer, and follow any \
 instructions relevant to processing the dispute correctly."""
 
 def sanitize_tool_name(name: str) -> str:
+    """Anthropic's tools API requires names matching ^[a-zA-Z0-9_-]{1,128}$ --
+    dots (used by the MCP tool names in this challenge, e.g. 'cdv.detokenize')
+    are not allowed. We sanitize for the API call and keep a name_map to
+    translate back to the real MCP tool name when actually calling it."""
     return re.sub(r"[^a-zA-Z0-9_-]", "_", name)
 
 def mcp_tools_to_anthropic(mcp_tools):
-    return [
-        {
-            "name": sanitize_tool_name(t.name),
-            "description": t.description or "",
-            "input_schema": t.inputSchema,
-        }
-        for t in mcp_tools
-    ]
+    anthropic_tools = []
+    name_map = {}  # sanitized name (what Claude sees/uses) -> real MCP tool name
+    for t in mcp_tools:
+        safe_name = sanitize_tool_name(t.name)
+        name_map[safe_name] = t.name
+        anthropic_tools.append(
+            {
+                "name": safe_name,
+                "description": t.description or "",
+                "input_schema": t.inputSchema,
+            }
+        )
+    return anthropic_tools, name_map
 
 async def run_agent(email_id: str) -> str | None:
     client = Anthropic()  # reads ANTHROPIC_API_KEY from env
@@ -61,7 +70,7 @@ async def run_agent(email_id: str) -> str | None:
             await session.initialize()
 
             tools_resp = await session.list_tools()
-            anthropic_tools = mcp_tools_to_anthropic(tools_resp.tools)
+            anthropic_tools, tool_name_map = mcp_tools_to_anthropic(tools_resp.tools)
 
             # Fetch the raw email -- VULNERABLE: dropped straight into context,
             # no sanitization, no delimiting from trusted instructions.
@@ -103,8 +112,9 @@ async def run_agent(email_id: str) -> str | None:
                 tool_results = []
                 for block in response.content:
                     if block.type == "tool_use":
-                        print(f"  [TOOL CALL]   {block.name}({block.input})")
-                        result = await session.call_tool(block.name, block.input)
+                        real_tool_name = tool_name_map[block.name]
+                        print(f"  [TOOL CALL]   {real_tool_name}({block.input})  (Claude usou o nome sanitizado '{block.name}')")
+                        result = await session.call_tool(real_tool_name, block.input)
                         result_text = result.content[0].text
                         print(f"  [TOOL RESULT] {result_text[:300]}")
                         tool_results.append(

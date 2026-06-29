@@ -17,6 +17,7 @@ Defina STEP_AUTOPLAY=1 para rodar sem pausar (smoke test).
 """
 
 import asyncio
+import re
 import sys
 
 from anthropic import Anthropic
@@ -27,6 +28,26 @@ from mailbox_provider import get_mailbox_provider
 from step_explainer import Steps, show_result, step
 
 MODEL = "claude-sonnet-4-6"
+
+
+def sanitize_tool_name(name: str) -> str:
+    """Anthropic's tools API requires names matching ^[a-zA-Z0-9_-]{1,128}$ --
+    dots (used by the MCP tool names here, e.g. 'cdv.detokenize') aren't
+    allowed. Sanitize for the API call and keep a name_map to translate
+    back to the real MCP tool name when actually calling it."""
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", name)
+
+
+def mcp_tools_to_anthropic(mcp_tools):
+    anthropic_tools = []
+    name_map = {}  # sanitized name (what Claude sees) -> real MCP tool name
+    for t in mcp_tools:
+        safe_name = sanitize_tool_name(t.name)
+        name_map[safe_name] = t.name
+        anthropic_tools.append(
+            {"name": safe_name, "description": t.description or "", "input_schema": t.inputSchema}
+        )
+    return anthropic_tools, name_map
 
 SYSTEM_PROMPT = """You are a customer support assistant for a fintech payment \
 processor. You help agents triage chargeback disputes by reading customer \
@@ -84,7 +105,10 @@ async def main(email_id: str):
         what_happens=(
             "O conteudo do e-mail entra na mensagem enviada para a API da "
             "Anthropic sem nenhuma delimitacao clara entre 'isto e dado' e "
-            "'isto e instrucao'."
+            "'isto e instrucao'. (Detalhe tecnico: a API exige nomes de "
+            "ferramenta sem ponto, ent\u00e3o 'cdv.detokenize' e enviado como "
+            "'cdv_detokenize' e traduzido de volta ao chamar o MCP de fato -- "
+            "isso nao e uma defesa, e so um detalhe de formato da API.)"
         ),
         vulnerability=(
             "Nao ha separacao entre instrucao de sistema e conteudo do "
@@ -99,10 +123,7 @@ async def main(email_id: str):
         async with ClientSession(read, write) as session:
             await session.initialize()
             tools_resp = await session.list_tools()
-            anthropic_tools = [
-                {"name": t.name, "description": t.description or "", "input_schema": t.inputSchema}
-                for t in tools_resp.tools
-            ]
+            anthropic_tools, tool_name_map = mcp_tools_to_anthropic(tools_resp.tools)
             show_result("Ferramentas entregues ao modelo (sem restricao)", [t["name"] for t in anthropic_tools])
 
             client = Anthropic()
@@ -133,9 +154,10 @@ async def main(email_id: str):
                         continue
 
                     # -----------------------------------------------------
+                    real_tool_name = tool_name_map[block.name]
                     step(
                         s.next(),
-                        f"Claude decide chamar a ferramenta: {block.name}",
+                        f"Claude decide chamar a ferramenta: {real_tool_name}",
                         module="Claude (LLM) -- decisao tomada dentro da chamada da API",
                         agent_role=(
                             "Aqui o agente de IA E o tomador de decisao: ele leu o "
@@ -143,7 +165,7 @@ async def main(email_id: str):
                             "por conta propria, qual ferramenta chamar e com quais "
                             "parametros."
                         ),
-                        what_happens=f"O modelo pediu para chamar `{block.name}` com: {block.input}",
+                        what_happens=f"O modelo pediu para chamar `{real_tool_name}` com: {block.input}",
                         vulnerability=(
                             "Nada valida essa decisao antes de executa-la. Se a "
                             "instrucao injetada convenceu o modelo a pedir "
@@ -152,9 +174,9 @@ async def main(email_id: str):
                             "sem checagem de ownership, sem aprovacao humana."
                         ),
                     )
-                    result = await session.call_tool(block.name, block.input)
+                    result = await session.call_tool(real_tool_name, block.input)
                     result_text = result.content[0].text
-                    show_result(f"Resultado de {block.name}() retornado pelo MCP server", result_text)
+                    show_result(f"Resultado de {real_tool_name}() retornado pelo MCP server", result_text)
 
                     messages.append(
                         {
